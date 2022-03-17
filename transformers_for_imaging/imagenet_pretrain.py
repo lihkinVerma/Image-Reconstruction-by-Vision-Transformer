@@ -160,6 +160,8 @@ net = VisionTransformer(
     patch_size=patch_size,
     in_chans=1, embed_dim=embed_dim,
     depth=depth, num_heads=num_heads,
+    is_LSA=True,
+    is_SPT=True
 )
 
 # Unet
@@ -215,7 +217,7 @@ scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr=0.0004,
                                           base_momentum=0., max_momentum=0., div_factor=0.1 * 20, final_div_factor=9)
 
 """Train"""
-for epoch in range(0, 1):  # loop over the dataset multiple times
+for epoch in range(0, 20):  # loop over the dataset multiple times
     model.train()
     train_loss = 0.0
     for i, data in enumerate(trainloader):
@@ -262,4 +264,4 @@ with torch.no_grad():
         plt.savefig('output/imagenet_after_spt' + str(k) + '.png')
         # plt.show()
 
-print("******* ENDED AT ************", datetime.now())
+print("*********** ENDED AT ************", datetime.now())

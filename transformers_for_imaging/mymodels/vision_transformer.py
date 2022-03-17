@@ -11,6 +11,8 @@ import torch.nn.functional as F
 from timm.models.helpers import load_pretrained
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 from utils.spt import ShiftedPatchTokenization
+from torch import einsum
+from einops import rearrange, repeat
 
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
@@ -144,8 +146,63 @@ class GPSA(nn.Module):
         x = self.proj_drop(x)
         return x
 
+def init_weights(m):
+    if isinstance(m, (nn.Linear, nn.Conv2d)):
+        nn.init.xavier_normal_(m.weight)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+    elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+
 class MHSA(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., grid_size=None):
+    def __init__(self, dim, num_patches, heads=8, dim_head=64, dropout=0., is_LSA=False):
+        super().__init__()
+        inner_dim = dim_head * heads
+        project_out = not (heads == 1 and dim_head == dim)
+        self.num_patches = num_patches
+        self.heads = heads
+        self.scale = dim_head ** -0.5
+        self.dim = dim
+        self.inner_dim = inner_dim
+        self.attend = nn.Softmax(dim=-1)
+        self.to_qkv = nn.Linear(self.dim, self.inner_dim * 3, bias=False)
+        init_weights(self.to_qkv)
+        self.to_out = nn.Sequential(
+            nn.Linear(self.inner_dim, self.dim),
+            nn.Dropout(dropout)
+        ) if project_out else nn.Identity()
+
+        if is_LSA:
+            self.scale = nn.Parameter(self.scale * torch.ones(heads))
+            self.mask = torch.eye(self.num_patches + 1, self.num_patches + 1)
+            self.mask = torch.nonzero((self.mask == 1), as_tuple=False)
+        else:
+            self.mask = None
+
+    def forward(self, x):
+        b, n, _, h = *x.shape, self.heads
+        qkv = self.to_qkv(x).chunk(3, dim=-1)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), qkv)
+
+        if self.mask is None:
+            dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
+
+        else:
+            scale = self.scale
+            dots = torch.mul(einsum('b h i d, b h j d -> b h i j', q, k),
+                             scale.unsqueeze(0).unsqueeze(-1).unsqueeze(-1).expand((b, h, 1, 1)))
+            dots[:, :, self.mask[:, 0], self.mask[:, 1]] = -987654321
+
+        attn = self.attend(dots)
+        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+
+        out = rearrange(out, 'b h n d -> b n (h d)')
+        return self.to_out(out)
+
+"""
+class MHSA(nn.Module):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., grid_size=None, num_patches=None, is_LSA=False):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -157,6 +214,14 @@ class MHSA(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         self.apply(self._init_weights)
         self.current_grid_size = grid_size
+        self.num_patches = num_patches
+
+        if is_LSA:
+            self.scale1 = nn.Parameter(self.scale * torch.ones(self.num_heads))
+            self.mask = torch.eye(self.num_patches + 1, self.num_patches + 1)
+            self.mask = torch.nonzero((self.mask == 1), as_tuple=False)
+        else:
+            self.mask = None
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -197,32 +262,80 @@ class MHSA(nn.Module):
         device = self.qkv.weight.device
         self.rel_indices = rel_indices.to(device)
 
+    def forward(self, x):
+        b, n, _, h = x.shape[0], x.shape[1], x.shape[2], self.num_heads
+        qkv = self.qkv(x).chunk(3, dim=-1)
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), qkv)
+        print(q.shape,k.shape,v.shape)
+
+        if self.mask is None:
+            dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale1
+
+        else:
+            scale = self.scale1
+            dots = torch.mul(einsum('b h i d, b h j d -> b h i j', q, k),
+                             scale.unsqueeze(0).unsqueeze(-1).unsqueeze(-1).expand((b, h, 1, 1)))
+            dots[:, :, self.mask[:, 0], self.mask[:, 1]] = -987654321
+
+        attn = dots.softmax(dim=-1)
+        print("-------", attn.shape)
+        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+
+        out = rearrange(out, 'b h n d -> b n (h d)')
+
+        x = self.proj(out)
+        x = self.proj_drop(x)
+
+        return x
 
     def forward(self, x):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
+        print("+++++++++", q.shape, k.shape, v.shape)
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
+        # attn1 = (q @ k.transpose(-2, -1)) * self.scale
+        # print("========", attn1.shape)
+        if self.mask is None:
+            dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
+
+        else:
+            scale = self.scale1
+            dots = torch.mul(einsum('b h i d, b h j d -> b h i j', q, k),
+                             scale.unsqueeze(0).unsqueeze(-1).unsqueeze(-1).expand((B, self.num_heads, 1, 1)))
+            dots[:, :, self.mask[:, 0], self.mask[:, 1]] = -987654321
+            print(dots.shape)
+
+        # attn1 = attn1.softmax(dim=-1)
+        # print("-----", attn1.shape)
+        # attn1 = self.attn_drop(attn1)
+        # print(attn1.shape)
+        attn = dots.softmax(dim=-1)
+        print("===========", attn.shape)
         attn = self.attn_drop(attn)
+        print(attn.shape)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        # x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+
+        x = rearrange(out, 'b h n d -> b n (h d)')
         x = self.proj(x)
         x = self.proj_drop(x)
 
         return x
+        """
 
 class Block(nn.Module):
     def __init__(self, dim, num_heads,  mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, use_gpsa=True, **kwargs):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, use_gpsa=True, num_patches=None, is_LSA=False, **kwargs):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.use_gpsa = use_gpsa
         if self.use_gpsa:
             self.attn = GPSA(dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop, **kwargs)
         else:
-            self.attn = MHSA(dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop, **kwargs)
+            # self.attn = MHSA(dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop, num_patches=num_patches, is_LSA=is_LSA, **kwargs)
+            self.attn = MHSA(dim, num_patches, heads=num_heads, dim_head=44, dropout=drop, is_LSA=False)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
@@ -263,7 +376,7 @@ class VisionTransformer(nn.Module):
     def __init__(self, avrg_img_size=320, patch_size=10, in_chans=1, embed_dim=64, depth=8,
                  num_heads=9, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
                  drop_path_rate=0., norm_layer=nn.LayerNorm, global_pool=None,
-                 gpsa_interval=[-1, -1], locality_strength=1., use_pos_embed=True):
+                 gpsa_interval=[-1, -1], locality_strength=1., use_pos_embed=True, is_LSA=False, is_SPT=False):
 
         super().__init__()
         self.depth = depth
@@ -282,11 +395,11 @@ class VisionTransformer(nn.Module):
 
         self.in_chans = in_chans
 
-        # self.patch_embed = PatchEmbed(
-        #     patch_size=self.patch_size, in_chans=in_chans, embed_dim=embed_dim) # (10,10) -> tuple
-        self.patch_embed = ShiftedPatchTokenization(in_chans, embed_dim, merging_size=self.patch_size, is_pe=True) #(10,10)->tuple
-        print(self.patch_embed)
-        # self.patch_embed = (self.patch_embed, self.patch_embed)
+        if not is_SPT:
+            self.patch_embed = PatchEmbed(
+                patch_size=self.patch_size, in_chans=in_chans, embed_dim=embed_dim) # (10,10) -> tuple
+        else:
+            self.patch_embed = ShiftedPatchTokenization(in_chans, embed_dim, merging_size=self.patch_size, is_pe=True) #(10,10)->tuple
 
         self.pos_drop = nn.Dropout(p=drop_rate)
 
@@ -299,6 +412,9 @@ class VisionTransformer(nn.Module):
 
             trunc_normal_(self.pos_embed, std=.02)
 
+        ### calculating num_patches
+        num_patches = (img_size[0] // self.patch_size[0]) * (img_size[1] // self.patch_size[1])
+
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
 
         self.blocks = nn.ModuleList([
@@ -306,12 +422,12 @@ class VisionTransformer(nn.Module):
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer,
                 use_gpsa=True,
-                locality_strength=locality_strength)
+                locality_strength=locality_strength, num_patches=num_patches, is_LSA=is_LSA)
             if i>=gpsa_interval[0]-1 and i<gpsa_interval[1] else
             Block(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer,
-                use_gpsa=False,)
+                use_gpsa=False, num_patches=num_patches, is_LSA=is_LSA)
             for i in range(depth)])
 
         self.norm = norm_layer(embed_dim)

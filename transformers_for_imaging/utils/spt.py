@@ -21,7 +21,7 @@ class ShiftedPatchTokenization(nn.Module):
         self.patch_shifting = PatchShifting(merging_size[0])
         self.merging = nn.Sequential(
             Rearrange('b c (h p1) (w p2) -> b (h w) (p1 p2 c)', p1=merging_size[0], p2=merging_size[0]),
-            # nn.LayerNorm(patch_dim),
+            nn.LayerNorm(patch_dim),
             nn.Linear(patch_dim, dim)
         )
 
@@ -40,8 +40,9 @@ class ShiftedPatchTokenization(nn.Module):
         else:
             out = x if self.is_pe else rearrange(x, 'b (h w) d -> b d h w', h=int(math.sqrt(x.size(1)))) # [64,1,180,180]
             out = self.patch_shifting(out) # [64, 5, 180, 180]
-            out = self.merging(out) # [4, 784, 704] [4, 704, 28, 28]
-            out = out.view(out.shape[0], out.shape[2], int(math.sqrt(out.shape[1])), int(math.sqrt(out.shape[1])))
+            out = self.merging(out) # [64, 784, 352] [64, 352, 18, 18]
+            # out = out.view(out.shape[0], out.shape[2], int(math.sqrt(out.shape[1])), int(math.sqrt(out.shape[1])))
+            out = rearrange(out, 'b (h w) d -> b d h w', h=int(math.sqrt(out.shape[1])))
         return out
 
 
