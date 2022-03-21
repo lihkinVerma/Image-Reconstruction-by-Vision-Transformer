@@ -22,7 +22,7 @@ import pandas as pd
 import PIL.Image as Image
 from glob import glob
 from mymodels import VisionTransformer, ReconNet
-from mymodels.discriminator import PatchDiscriminator, GANLoss
+# from mymodels.discriminator import PatchDiscriminator, GANLoss
 from mymodels.discriminatorv2 import Discriminator
 import matplotlib.pyplot as plt
 from myutils import imshow
@@ -145,8 +145,8 @@ ntrain = 20000
 train_dataset, _ = torch.utils.data.random_split(dataset, [ntrain, len(dataset) - ntrain],
                                                  generator=torch.Generator().manual_seed(42))
 ############## for best model, use batch_size = 45 (not sure)
-batch_size = 38
-epcho = 20
+batch_size = 40
+epcho = 30
 trainloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True,
                          generator=torch.Generator().manual_seed(42))
 valloader = DataLoader(val_dataset, batch_size=1, shuffle=True, num_workers=1, pin_memory=True,
@@ -166,8 +166,8 @@ net = VisionTransformer(
     patch_size=patch_size,
     in_chans=1, embed_dim=embed_dim,
     depth=depth, num_heads=num_heads,
-    is_LSA=True,
-    is_SPT=True
+    is_LSA=False,
+    is_SPT=False
 )
 
 # Unet
@@ -227,7 +227,7 @@ scheduler = optim.lr_scheduler.OneCycleLR(optimizerG, max_lr=0.0004,
 
 """Train"""
 ##################### discriminator parameters####################################
-run_discriminator = False
+run_discriminator = True
 if run_discriminator:
     criterionGAN = BCELoss().to(device)
     # criterionGAN = GANLoss().to(device)
