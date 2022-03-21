@@ -29,7 +29,8 @@ import os
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 device = 'cuda'
-np.random.seed(0)
+np.random.seed(42)
+random.seed(42)
 
 print("******* STARTED AT ************", datetime.now())
 
@@ -110,14 +111,13 @@ class ImagenetDataset(Dataset):
         if random.uniform(0, 1) < 0.5:
             y = torch.rot90(y, 1, [-2, -1])
 
-        x = self.add_gaussian_noise(y)
-
-        # if random.uniform(0, 1) < 0.5:
-        #     samp_style = 'random'
-        # else:
-        #     samp_style = 'equidist'
-        # factor = random.choice(self.factors)
-        # mask_func = self.get_mask_func(samp_style, factor)
+        if random.uniform(0, 1) < 0.5:
+            samp_style = 'random'
+        else:
+            samp_style = 'equidist'
+        factor = random.choice(self.factors)
+        mask_func = self.get_mask_func(samp_style, factor=5)
+        masked_kspace, _ = transforms.apply_mask(y, mask_func)
         # x = y.squeeze()
         # x = torch.stack((x, torch.zeros_like(x)), -1)
         # kspace = fastmri.fft2c(x)
@@ -129,7 +129,7 @@ class ImagenetDataset(Dataset):
         # x += 1e-6 * torch.randn_like(
         #     x)  # For stability during training due to normalization step in network (i.e. when x is constant, network outputs inf)
 
-        return (x, y)
+        return (masked_kspace, y)
 
 
 dataset = ImagenetDataset()
@@ -181,7 +181,7 @@ for name, param in model.named_parameters():
         param.requires_grad = False
 
 print('#Params:', sum(p.numel() for p in model.parameters() if p.requires_grad))
-print(model)
+# print(model)
 
 
 # Save model
