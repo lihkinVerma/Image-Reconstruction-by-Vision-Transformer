@@ -116,13 +116,14 @@ class ImagenetDataset(Dataset):
         if random.uniform(0, 1) < 0.5:
             y = torch.rot90(y, 1, [-2, -1])
 
-        if random.uniform(0, 1) < 0.5:
-            samp_style = 'random'
-        else:
-            samp_style = 'equidist'
-        factor = random.choice(self.factors)
-        mask_func = self.get_mask_func(samp_style, factor=5)
-        masked_kspace, _ = transforms.apply_mask(y, mask_func)
+        # if random.uniform(0, 1) < 0.5:
+        #     samp_style = 'random'
+        # else:
+        #     samp_style = 'equidist'
+        # factor = random.choice(self.factors)
+        # mask_func = self.get_mask_func(samp_style, factor=5)
+        # masked_kspace, _ = transforms.apply_mask(y, mask_func)
+        masked_kspace = self.add_gaussian_noise(y)
         # x = y.squeeze()
         # x = torch.stack((x, torch.zeros_like(x)), -1)
         # kspace = fastmri.fft2c(x)
@@ -145,8 +146,8 @@ ntrain = 20000
 train_dataset, _ = torch.utils.data.random_split(dataset, [ntrain, len(dataset) - ntrain],
                                                  generator=torch.Generator().manual_seed(42))
 ############## for best model, use batch_size = 45 (not sure)
-batch_size = 40
-epcho = 20
+batch_size = 38
+epoch = 40
 trainloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True,
                          generator=torch.Generator().manual_seed(42))
 valloader = DataLoader(val_dataset, batch_size=1, shuffle=True, num_workers=1, pin_memory=True,
@@ -166,7 +167,7 @@ net = VisionTransformer(
     patch_size=patch_size,
     in_chans=1, embed_dim=embed_dim,
     depth=depth, num_heads=num_heads,
-    is_LSA=True,
+    is_LSA=False,
     is_SPT=False
 )
 
@@ -220,21 +221,21 @@ optimizerG = optim.Adam(model.parameters(), lr=0.0)
 train_hist = []
 path = './'  # Path for saving model checkpoint and loss history
 scheduler = optim.lr_scheduler.OneCycleLR(optimizerG, max_lr=0.0004,
-                                          total_steps=epcho, pct_start=0.1,
+                                          total_steps=epoch, pct_start=0.1,
                                           anneal_strategy='linear',
                                           cycle_momentum=False,
-                                          base_momentum=0., max_momentum=0., div_factor=0.1 * epcho, final_div_factor=9)
+                                          base_momentum=0., max_momentum=0., div_factor=0.1 * epoch, final_div_factor=9)
 
 """Train"""
 ##################### discriminator parameters####################################
-run_discriminator = False
+run_discriminator = True
 if run_discriminator:
     criterionGAN = BCELoss().to(device)
     # criterionGAN = GANLoss().to(device)
     # discriminator = PatchDiscriminator(input_nc=1).to(device)
     discriminator = Discriminator(in_channels = 1,
                                 patch_size = patch_size,
-                                extend_size = 0,
+                                extend_size = 2,
                                 dim = embed_dim,
                                 blocks = depth,
                                 num_heads = num_heads,
@@ -242,17 +243,17 @@ if run_discriminator:
                                 dropout = 0.1).to(device)
     optimizerD = torch.optim.Adam(discriminator.parameters(), lr=0.00005)
 
-    gan_weight = 1
+    gan_weight = 0.05
     ss_weight = 1
     schedulerD = optim.lr_scheduler.OneCycleLR(optimizerD, max_lr=0.00005,
-                                          total_steps=epcho, pct_start=0.1,
+                                          total_steps=epoch, pct_start=0.1,
                                           anneal_strategy='linear',
                                           cycle_momentum=False,
-                                          base_momentum=0., max_momentum=0., div_factor=0.1 * epcho, final_div_factor=9)
+                                          base_momentum=0., max_momentum=0., div_factor=0.1 * epoch, final_div_factor=9)
 ##################################################################################
 
 if not run_discriminator:
-    for epoch in range(0, epcho):  # loop over the dataset multiple times
+    for epoch in range(0, epoch):  # loop over the dataset multiple times
         model.train()
         train_loss = 0.0
         for i, data in enumerate(trainloader):
@@ -273,7 +274,7 @@ if not run_discriminator:
         save_model(path, model, train_hist, optimizerG, scheduler=scheduler)
         print('Epoch {}, Train loss.: {:0.4e}'.format(epoch + 1, train_hist[-1]))
 else:
-    for epoch in range(0, epcho):  # loop over the dataset multiple times
+    for epoch in range(0, epoch):  # loop over the dataset multiple times
         model.train()
         losses_real = 0.0
         losses_fake = 0.0
@@ -326,7 +327,7 @@ else:
         schedulerD.step()
         trainloader_len = len(trainloader)
         train_hist.append((losses_ss.item() * ss_weight + loss_g_gan.item() * gan_weight)/trainloader_len)
-        save_model(path, model, train_hist, optimizerG, scheduler=scheduler)
+        # save_model(path, model, train_hist, optimizerG, scheduler=scheduler)
         print('Epoch {}, Train loss. (generator): {:0.4e}, (discriminator: real, fake): {:0.4e}, {:0.4e}'.format(
             epoch + 1, train_hist[-1], losses_real.item()/trainloader_len, losses_fake.item()/trainloader_len))
         print('Epoch {}, Train loss. (SSIM, GAN): {:0.4e}, {:0.4e}'.format(
@@ -377,7 +378,7 @@ psnr_noise = []
 nmse_clean = []
 nmse_noise = []
 
-testing_data = 40000
+testing_data = 4000
 with torch.no_grad():
     for k in range(0, testing_data):
         inputs, targets = dataiter.next()
@@ -410,7 +411,9 @@ with torch.no_grad():
     output_stat['nmse_noise'] = nmse_noise
     output_stat.to_csv("output/breakdown.csv")
 
-    testing_metrics = output_stat.sum(axis=0)
+    # output_stat = pd.read_csv("output/testing_metrics.csv")
+    testing_metrics = output_stat.mean(axis=0)
+    output_stat = pd.concat([output_stat, testing_metrics])
     testing_metrics.to_csv("output/testing_metrics.csv")
 
     print(' ssim:', testing_metrics['ssim_clean'])
