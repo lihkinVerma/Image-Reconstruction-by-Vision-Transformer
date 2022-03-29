@@ -116,24 +116,16 @@ class ImagenetDataset(Dataset):
         if random.uniform(0, 1) < 0.5:
             y = torch.rot90(y, 1, [-2, -1])
 
-        # if random.uniform(0, 1) < 0.5:
-        #     samp_style = 'random'
-        # else:
-        #     samp_style = 'equidist'
-        # factor = random.choice(self.factors)
-        # mask_func = self.get_mask_func(samp_style, factor=5)
-        # masked_kspace, _ = transforms.apply_mask(y, mask_func)
-        masked_kspace = self.add_gaussian_noise(y)
-        # x = y.squeeze()
-        # x = torch.stack((x, torch.zeros_like(x)), -1)
-        # kspace = fastmri.fft2c(x)
-        # #         kspace = self.add_gaussian_noise(kspace)
-        # masked_kspace, _ = transforms.apply_mask(kspace, mask_func)
-        # zero_fill = fastmri.ifft2c(masked_kspace)
-        # x = fastmri.complex_abs(zero_fill)
-        # x = x.unsqueeze(0)
-        # x += 1e-6 * torch.randn_like(
-        #     x)  # For stability during training due to normalization step in network (i.e. when x is constant, network outputs inf)
+        if random.uniform(0, 1) < 0.5:
+            samp_style = 'random'
+        else:
+            samp_style = 'equidist'
+        factor = random.choice(self.factors)
+        mask_func = self.get_mask_func(samp_style, factor=5)
+        masked_kspace, _ = transforms.apply_mask(y, mask_func)
+        
+        
+        # masked_kspace = self.add_gaussian_noise(y)
 
         return (masked_kspace, y)
 
@@ -146,7 +138,7 @@ ntrain = 20000
 train_dataset, _ = torch.utils.data.random_split(dataset, [ntrain, len(dataset) - ntrain],
                                                  generator=torch.Generator().manual_seed(42))
 ############## for best model, use batch_size = 45 (not sure)
-batch_size = 38
+batch_size = 35
 epoch = 40
 trainloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=2, pin_memory=True,
                          generator=torch.Generator().manual_seed(42))
@@ -168,7 +160,9 @@ net = VisionTransformer(
     in_chans=1, embed_dim=embed_dim,
     depth=depth, num_heads=num_heads,
     is_LSA=False,
-    is_SPT=False
+    is_SPT=False,
+    rotary_position_emb = True,
+    use_pos_embed=False
 )
 
 # Unet
@@ -236,9 +230,9 @@ if run_discriminator:
     discriminator = Discriminator(in_channels = 1,
                                 patch_size = patch_size,
                                 extend_size = 2,
-                                dim = embed_dim,
+                                dim = 50,
                                 blocks = depth,
-                                num_heads = num_heads,
+                                num_heads = 8,
                                 dim_head = None,
                                 dropout = 0.1).to(device)
     optimizerD = torch.optim.Adam(discriminator.parameters(), lr=0.00005)
