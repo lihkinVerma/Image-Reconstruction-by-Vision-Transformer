@@ -1,4 +1,20 @@
-# pytorch
+#--------------------------------------------------------------------
+# Importing required libraries
+#--------------------------------------------------------------------
+import random
+import numpy as np
+import pandas as pd
+import PIL.Image as Image
+from glob import glob
+from mymodels import VisionTransformer, ReconNet
+from mymodels.unet import Unet
+from mymodels.discriminatorv2 import Discriminator
+import matplotlib.pyplot as plt
+from myutils import imshow
+from datetime import datetime
+
+
+# importing pytorch functions
 import torch
 from torchvision.utils import make_grid
 import torch.optim as optim
@@ -7,26 +23,11 @@ import torchvision
 import torchvision.transforms as tvtransforms
 from torch.nn import SmoothL1Loss, BCELoss
 
-# fastmri
-import fastmri
-from fastmri.data import subsample
-from fastmri.data import transforms, mri_data
-from fastmri.evaluate import ssim, psnr, nmse
-from fastmri.losses import SSIMLoss
-from fastmri.models import Unet
-
-# other
-import random
-import numpy as np
-import pandas as pd
-import PIL.Image as Image
-from glob import glob
-from mymodels import VisionTransformer, ReconNet
-# from mymodels.discriminator import PatchDiscriminator, GANLoss
-from mymodels.discriminatorv2 import Discriminator
-import matplotlib.pyplot as plt
-from myutils import imshow
-from datetime import datetime
+# importing utils required in th code
+from utils import subsample
+from utils import transforms
+from utils.evaluate import ssim, psnr, nmse
+from utils.losses import SSIMLoss
 
 # Device
 import os
@@ -39,7 +40,9 @@ random.seed(42)
 
 print("******* STARTED AT ************", datetime.now())
 
-
+#--------------------------------------------------------------------
+# Loading dataset
+#--------------------------------------------------------------------
 class ImagenetDataset(Dataset):
     def __init__(self, isval=False):
 
@@ -49,16 +52,12 @@ class ImagenetDataset(Dataset):
             pattern = "*.JPEG"
             for dir, _, _ in os.walk('./Data/tiny-imagenet-200/test/images/'):
                 self.files.extend(glob(os.path.join(dir, pattern)))
-                # or uncomment following in case paths are already saved
-        #             self.files = torch.load('./imagenet_filepaths_val.pt')
         else:
             ## combine paths of each imagenet training image into a single list
             self.files = []  # get path of each imagenet images
             pattern = "*.JPEG"
             for dir, _, _ in os.walk('./Data/tiny-imagenet-200/train/'):
                 self.files.extend(glob(os.path.join(dir, pattern)))
-                # or uncomment in case paths are already saved
-        #             self.files = torch.load('./imagenet_filepaths_train.pt')
 
         ##################### Change image size ########################
         ############## for best model, use tvtransforms.Resize(64*3,), tvtransforms.RandomCrop(60*3),
@@ -87,12 +86,6 @@ class ImagenetDataset(Dataset):
                 accelerations=[factor],
             )
         return mask_func
-
-    # def add_gaussian_noise(self, x):
-    #     noise = random.uniform(0.0, 0.0015)
-    #     x = x + noise * x.norm() * 1 / 2 ** 0.5 * torch.randn_like(x)
-    #
-    #     return x
 
     def add_gaussian_noise(self, x):
         ch, row, col = x.shape
@@ -123,12 +116,11 @@ class ImagenetDataset(Dataset):
         factor = random.choice(self.factors)
         mask_func = self.get_mask_func(samp_style, factor=5)
         masked_kspace, _ = transforms.apply_mask(y, mask_func)
-        
-        
+
+
         # masked_kspace = self.add_gaussian_noise(y)
 
         return (masked_kspace, y)
-
 
 dataset = ImagenetDataset()
 val_dataset = ImagenetDataset(isval=True)
@@ -145,10 +137,12 @@ trainloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num
 valloader = DataLoader(val_dataset, batch_size=1, shuffle=True, num_workers=1, pin_memory=True,
                        generator=torch.Generator().manual_seed(42))
 
-"""Init Model"""
+#--------------------------------------------------------------------
+# Initialising Models
+#--------------------------------------------------------------------
 # Vision Transformer
 ############## for best model, use avrg_img_size = 180
-avrg_img_size = 180 # original 340
+avrg_img_size = 180
 patch_size = 10
 depth = 10
 num_heads = 8
@@ -159,13 +153,14 @@ net = VisionTransformer(
     patch_size=patch_size,
     in_chans=1, embed_dim=embed_dim,
     depth=depth, num_heads=num_heads,
-    is_LSA=False,
-    is_SPT=False,
-    rotary_position_emb = True,
+    is_LSA=False, #---------------Parameter for adding LSA component
+    is_SPT=False, #---------------Parameter for adding SPT component
+    rotary_position_emb = True, #---------------Parameter for adding ROPE component
     use_pos_embed=False
 )
 
-# Unet
+#--------------- network for testing Unet architecture
+# Unet - Uncomment for running the U-net Code
 # net = Unet(
 #     in_chans=1,
 #     out_chans=1,
@@ -173,6 +168,9 @@ net = VisionTransformer(
 #     num_pool_layers=4,
 #     )
 
+#--------------------------------------------------------------------
+# Creating a reconstruction network
+#--------------------------------------------------------------------
 model = ReconNet(net).to(device)
 
 # Set biases to zero
@@ -184,8 +182,9 @@ for name, param in model.named_parameters():
 print('#Params:', sum(p.numel() for p in model.parameters() if p.requires_grad))
 print(model)
 
-
-# Save model
+#--------------------------------------------------------------------
+# Function to Save model
+#--------------------------------------------------------------------
 def save_model(path, model, train_hist, optimizer, scheduler=None):
     net = model.net
     if scheduler:
@@ -207,9 +206,6 @@ def save_model(path, model, train_hist, optimizer, scheduler=None):
 
 
 """Choose optimizer"""
-# criterion = SmoothL1Loss().to(device)
-
-
 criterion = SSIMLoss().to(device)
 optimizerG = optim.Adam(model.parameters(), lr=0.0)
 train_hist = []
@@ -220,9 +216,12 @@ scheduler = optim.lr_scheduler.OneCycleLR(optimizerG, max_lr=0.0004,
                                           cycle_momentum=False,
                                           base_momentum=0., max_momentum=0., div_factor=0.1 * epoch, final_div_factor=9)
 
-"""Train"""
-##################### discriminator parameters####################################
-run_discriminator = True
+#--------------------------------------------------------------------
+# Start to train the model
+#--------------------------------------------------------------------
+
+#----------- discriminator parameters to test Adverserial loss addition to the network
+run_discriminator = False
 if run_discriminator:
     criterionGAN = BCELoss().to(device)
     # criterionGAN = GANLoss().to(device)
@@ -244,7 +243,7 @@ if run_discriminator:
                                           anneal_strategy='linear',
                                           cycle_momentum=False,
                                           base_momentum=0., max_momentum=0., div_factor=0.1 * epoch, final_div_factor=9)
-##################################################################################
+#--------------------------------------------------------------------
 
 if not run_discriminator:
     for epoch in range(0, epoch):  # loop over the dataset multiple times
@@ -254,7 +253,7 @@ if not run_discriminator:
             inputs, targets = data
             optimizerG.zero_grad()
             outputs = model(inputs.to(device))
-            
+
             loss = criterion(outputs, targets.to(device), torch.tensor([1.], device=device))
             # loss = criterion(outputs, targets.to(device))
             loss.backward()
@@ -291,13 +290,13 @@ else:
             pred_real = discriminator.forward(targets.to(device))
             loss_d_real = criterionGAN(pred_real.flatten(), torch.ones(target_len).to(device))
             loss_d_real.backward()
-            
+
             torch.nn.utils.clip_grad_norm_(discriminator.parameters(), max_norm=1, norm_type=1, error_if_nonfinite=True)
             optimizerD.step()
-            
+
             losses_fake += loss_d_fake
             losses_real += loss_d_real
-            
+
             #######
             ## Train generator
             #######
@@ -310,7 +309,7 @@ else:
             loss_g_gan = criterionGAN(pred_fake.flatten(), torch.ones(target_len).to(device))
 
             loss_g = loss_g_ss * ss_weight + loss_g_gan * gan_weight
-            
+
             loss_g.backward()
             losses_ss += loss_g_ss
             losses_gan += loss_g_gan
@@ -355,8 +354,10 @@ else:
 #         plt.savefig('output/imagenet_after_spt' + str(k) + '.png')
 #         # plt.show()
 
-
+#--------------------------------------------------------------------
+# Test the model trained
 print("*********** Testing ************", datetime.now())
+#--------------------------------------------------------------------
 
 """Example reconstructions"""
 valloader = DataLoader(val_dataset, batch_size=1, shuffle=True, num_workers=0,
@@ -388,7 +389,7 @@ with torch.no_grad():
                             value_range=(0, maxval[0])))
             plt.axis('off')
             plt.savefig('output/imagenet_after_spt' + str(k) + '.png')
-    
+
         ssim_clean.append(ssim(img, img_noise, maxval[0].item()))
         ssim_noise.append(ssim(img, img_input, maxval[0].item()))
         psnr_clean.append(psnr(img, img_noise, maxval[0].item()))
@@ -418,3 +419,7 @@ with torch.no_grad():
     print('*nmse:', testing_metrics['nmse_noise'])
 
 print("*********** ENDED AT ************", datetime.now())
+
+#--------------------------------------------------------------------
+# Completed running a ViT network with Imagenet dataset
+#--------------------------------------------------------------------
