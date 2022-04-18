@@ -1,44 +1,31 @@
-# Vision Transformers Enable Fast and Robust Accelerated MRI
-This repository provides code for reproducing the results of the paper: [Vision Transformers Enable Fast and Robust Accelerated MRI](https://openreview.net/forum?id=cNX6LASbv6), by Kang Lin and Reinhard Heckel.
+# Image-Reconstruction-by-Vision-Transformer
+This repository is to store code developed for task of Image Reconstruction via Vision transformer for tinyImagenet or other small datasets as MNIST
 
-The code has been tested for the environment in `requirements.txt`, and builds on the code from [fastMRI](https://github.com/facebookresearch/fastMRI), [ConViT](https://github.com/facebookresearch/convit), and [timm](https://github.com/rwightman/pytorch-image-models).
+General rules:
+1. Use requirements.txt to mention any dependency in the project
+2. Please mention any code if taken from some place. Put the mark in references at the bottom
+3. Try experiments and make sure to git commit the code.
 
-## Datasets
-The experiments from the paper were performed using the [fastMRI dataset](https://fastmri.org/dataset) and the [ImageNet dataset](https://www.image-net.org/index.php).
+Usual git commands useful:-
+1. git clone repo_link
+2. make changes in file of concern to you
+3. git status - to check any changes you did to files
+4. git diff . - will show all files having changes
+5. git add file_name or . - to add changes you did in file
+6. git commit -m "Message while string the changes"
+7. git push origin main - Pushing your changes to the git
+8. Must resolve any git conflict if appear while committing code
 
-## Installation
-First, install PyTorch for your operating system and CUDA setup from the
-[PyTorch website](https://pytorch.org/get-started/).  
+### Lydia
+Store any experiments or setup commands you used and also any specifications
 
-Then, install all other dependencies from `requirements.txt`. This can be done, for example, by running
-```
-pip install -r requirements.txt
-```
-from the directory where you saved `requirements.txt`. Alternatively, you may run
-```
-pip install fastmri
-pip install timm
-```
-to obtain the dependencies.
+### Deepkamal 
+Store any experiments or setup commands you used and also any specifications
 
-## Usage
-The code for reproducing the paper results are provided as Jupyter notebooks: `fastmri_training.ipynb` and `imagenet_pretrain.ipynb`. 
+### Nikhil
+Store any experiments or setup commands you used and also any specifications
+Doing some changes
 
-The notebook `fastmri_training.ipynb` handles model training, fine-tuning and evaluation on the fastMRI dataset.
-The notebook `imagenet_pretrain.ipynb` provides the code for pre-training our models on the ImageNet dataset. 
-
-You may adjust the hyperparamters according to the descriptions in the paper. Also note that in both notebooks the data directory path has to be specified at the marked places.
-
-In the experiments, we also used a simulated single-coil brain dataset, which has been simulated in the same fashion as fastMRI's single-coil knee dataset. The code to reproduce this dataset is provided in `simulate_singlecoil_from_multicoil.ipynb`.
-
-## Citation
-```
-@article{lin2021vision,
-  title={Vision Transformers Enable Fast and Robust Accelerated MRI},
-  author={Lin, Kang and Heckel, Reinhard},
-  year={2021}
-}
-```
-## License
-This repository is [Apache 2.0](https://github.com/MLI-lab/transformers_for_imaging/blob/master/LICENSE) licensed.
-
+## Refernces
+1. abc 
+2. def
