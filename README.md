@@ -4,15 +4,14 @@ This repository is to store code developed for task of Image Reconstruction via 
 ### Project details
 Removing noise from images is a challenging and fundamental problem in the field of computer vision. Images captured by modern cameras are inevitably degraded by noise which limits the accuracy of any quantitative measurements on those images. In this project, we propose a novel image reconstruction framework which can be used for tasks such as image denoising, deblurring or inpainting. The model proposed in this project is based on Vision Transformer (ViT) that takes 2D images as input and outputs embeddings which can be used for reconstruct- ing denoised images. We incorporate four additional optimization techniques in the framework to improve the model reconstruction capability, namely Locality Sensitive Attention (LSA), Shifted Patch Tokenization (SPT), Rotary Positional Embedding (RoPE) and adversarial loss function inspired from Generative Ad- versarial Networks(GANs). LSA, SPT and RoPE enable the transformer to learn from the dataset more efficiently, while the adversarial loss function enhances the resolution of the reconstructed images. Based on our experiments, the proposed architecture outperforms the benchmark U-Net model by more than 3.5% structural similarity (SSIM) across various reconstruction tasks, including image denoising and inpainting. The proposed enhancements further show an improvement of ~5% SSIM over the benchmark for both tasks.
 
-### Project owners and commands
-Store any experiments or setup commands you used and also any specifications
-Doing some changes
-### Nikhil
+### Vision Transformer for reconstruction task
 
 
-### Deepkamal
+### Authors
 
-### Lydia
+1. Lydia Chau: lydia.chau@mail.utoronto.ca
+2. Deepkamal K. Gill: deepkamal.gill@mail.utoronto.ca
+3. Nikhil Verma: lih.verma@mail.utoronto.ca
 
 ### Practises followed while developing
 General rules:
@@ -56,6 +55,3 @@ Usual git commands useful:-
 22. O. Russakovsky, J. Deng, H. Su, J. Krause, S. Satheesh, S. Ma, Z. Huang, A. Karpathy, A. Khosla, M. Bernstein, A. C. Berg, and L. Fei-Fei, “ImageNet Large Scale Visual Recognition Challenge,” International Journal of Computer Vision (IJCV), vol. 115, no. 3, pp. 211–252, 2015. 4.1
 23. A. Hore and D. Ziou, “Image quality metrics: Psnr vs. ssim,” in 2010 20th international conference on pattern recognition, pp. 2366–2369, IEEE, 2010. 4.2
 24. A. Rehman and Z. Wang, “Ssim-based non-local means image denoising,” in 2011 18th IEEE International Conference on Image Processing, pp. 217–220, IEEE, 2011. 4.2
-
- abc 
-2. def
